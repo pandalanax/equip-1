@@ -27,3 +27,12 @@ fabrication-toolkit-options.json
 
 *.stl
 *.ttf
+
+# Local notes
+todo.md
+
+# Buildroot generated artifacts and logs
+buildroot/build.log
+buildroot/logs/
+buildroot/buildroot/
+buildroot/scripts/minicom.log
