@@ -1,0 +1,11 @@
+# Build output
+output/
+
+# Compiled DT overlays (generated during build)
+overlay/boot/overlay-user/*.dtbo
+
+# Copied application files (generated during build from src/os/)
+overlay/opt/equip1/os.py
+overlay/opt/equip1/requirements.txt
+overlay/opt/equip1/fonts/
+overlay/opt/equip1/lib/
