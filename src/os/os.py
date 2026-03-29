@@ -7,6 +7,7 @@ from periphery import GPIO
 from luma.core.interface.serial import i2c
 from luma.oled.device import sh1106
 from PIL import Image, ImageDraw, ImageFont
+from luma.core.error import DeviceNotFoundError
 
 # Set to "rock2f" or "rpi"
 BOARD = os.environ.get("EQUIP_1_BOARD_TYPE", "rock2f")
@@ -110,6 +111,20 @@ class Display:
         draw = ImageDraw.Draw(img)
         draw_func(draw, self.device.width, self.device.height)
         self.device.display(img)
+
+
+class NullDisplay:
+    def __init__(self):
+        self.width = 128
+        self.height = 64
+        self.font_medium = ImageFont.load_default()
+        self.font_big = ImageFont.load_default()
+
+    def clear(self):
+        pass
+
+    def render(self, draw_func):
+        pass
 
 
 class Screen:    
@@ -299,6 +314,14 @@ class Buzzer:
         self.gpio.close()
 
 
+class NullBuzzer:
+    def beep(self, duration=0.08, freq=2048):
+        pass
+
+    def close(self):
+        pass
+
+
 class Button:
     def __init__(self, chip, line):
         self.gpio = GPIO(chip, line, "in")
@@ -333,12 +356,27 @@ class Buttons:
         self.down.close()
 
 
+class NullButton:
+    def pressed(self):
+        return False
+
+
+class NullButtons:
+    def __init__(self):
+        self.up = NullButton()
+        self.select = NullButton()
+        self.down = NullButton()
+
+    def close(self):
+        pass
+
+
 class App:
     def __init__(self):
         self.recorder = RecorderState()
-        self.display = Display()
-        self.buttons = Buttons()
-        self.buzzer = Buzzer()
+        self.display = self._create_display()
+        self.buttons = self._create_buttons()
+        self.buzzer = self._create_buzzer()
         
         self.screens = [
             #TestScreen(self),
@@ -349,6 +387,27 @@ class App:
             PowerScreen(self),
         ]
         self.current_screen_idx = 0
+
+    def _create_display(self):
+        try:
+            return Display()
+        except (FileNotFoundError, DeviceNotFoundError, OSError) as exc:
+            print(f"Display unavailable, running headless: {exc}")
+            return NullDisplay()
+
+    def _create_buttons(self):
+        try:
+            return Buttons()
+        except (FileNotFoundError, OSError) as exc:
+            print(f"Buttons unavailable, continuing without GPIO input: {exc}")
+            return NullButtons()
+
+    def _create_buzzer(self):
+        try:
+            return Buzzer()
+        except (FileNotFoundError, OSError) as exc:
+            print(f"Buzzer unavailable, continuing without GPIO output: {exc}")
+            return NullBuzzer()
     
     @property
     def current_screen(self):

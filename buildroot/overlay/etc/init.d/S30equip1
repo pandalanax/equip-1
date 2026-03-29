@@ -1,0 +1,42 @@
+#!/bin/sh
+# Auto-start equip-1 DV recorder application on boot
+# Based on: https://github.com/computerequipmentgroup/equip-1/issues/5
+
+EQUIP1_DIR="/opt/equip1"
+CAPTURES_DIR="/data/captures"
+PIDFILE="/var/run/equip1.pid"
+
+case "$1" in
+    start)
+        echo "Starting equip-1..."
+        mkdir -p "$CAPTURES_DIR"
+        mkdir -p "$(dirname "$PIDFILE")"
+
+        # Load FireWire modules
+        modprobe firewire-ohci 2>/dev/null || true
+        modprobe firewire-sbp2 2>/dev/null || true
+
+        # Set PYTHONPATH for bundled dependencies
+        export PYTHONPATH="$EQUIP1_DIR/lib"
+        export EQUIP_1_BOARD_TYPE="rock2f"
+
+        cd "$EQUIP1_DIR"
+        start-stop-daemon -S -b -m -p "$PIDFILE" \
+            -x /usr/bin/python3 -- "$EQUIP1_DIR/os.py"
+        ;;
+    stop)
+        echo "Stopping equip-1..."
+        # Send SIGINT (Ctrl+C) for clean shutdown — os.py handles KeyboardInterrupt
+        start-stop-daemon -K -s INT -p "$PIDFILE" 2>/dev/null
+        rm -f "$PIDFILE"
+        ;;
+    restart)
+        $0 stop
+        sleep 1
+        $0 start
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac

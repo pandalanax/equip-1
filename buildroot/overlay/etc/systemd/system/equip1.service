@@ -1,0 +1,17 @@
+[Unit]
+Description=Equip-1 DV Recorder
+After=multi-user.target
+
+[Service]
+WorkingDirectory=/opt/equip1
+ExecStartPre=/sbin/modprobe firewire-ohci
+ExecStartPre=/sbin/modprobe firewire-sbp2
+ExecStart=/usr/bin/python3 /opt/equip1/os.py
+Environment=PYTHONPATH=/opt/equip1/lib
+Environment=EQUIP_1_BOARD_TYPE=rock2f
+KillSignal=SIGINT
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
