@@ -37,6 +37,7 @@ class RecorderState:
         self.mode = "idle"
         self.start_time = None
         self.process = None
+        self.last_error = None
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
 
@@ -49,15 +50,24 @@ class RecorderState:
         if self.mode == "idle":
             if not self.camera_connected:
                 return
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            try:
+                self.process = subprocess.Popen(
+                    ["dvgrab", "-buffers", "20",
+                     f"{self.output_dir}/capture_{timestamp}-"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE
+                )
+            except (FileNotFoundError, OSError) as exc:
+                # Capture tool missing or failed to launch: stay idle and surface
+                # the error instead of crashing the whole app.
+                print(f"Recording failed to start: {exc}")
+                self.process = None
+                self.last_error = "REC ERR"
+                return
             self.mode = "recording"
             self.start_time = time.time()
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            self.process = subprocess.Popen(
-                ["dvgrab", "-buffers", "20",
-                 f"{self.output_dir}/capture_{timestamp}-"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
+            self.last_error = None
         else:
             self.mode = "idle"
             if self.process:
@@ -169,6 +179,12 @@ class RecordingScreen(Screen):
             draw.text((14, 0), "REC", font=font_medium, fill=255)
         else:
             draw.text((0, 0), "RECORD", font=font_medium, fill=255)
+            # Surface a failed capture launch instead of silently doing nothing.
+            if recorder.last_error:
+                bbox = draw.textbbox((0, 0), recorder.last_error, font=font_big)
+                x = (width - (bbox[2] - bbox[0])) // 2
+                draw.text((x, 28), recorder.last_error, font=font_big, fill=255)
+                return
         
         # Minutes left (top right)
         mins_left = recorder.recording_minutes_left

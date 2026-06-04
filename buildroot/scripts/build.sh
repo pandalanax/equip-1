@@ -108,6 +108,7 @@ echo "==> Copying application into overlay..."
 cp "$ROOT_DIR/src/os/os.py" "$OVERLAY_DIR/opt/equip1/os.py"
 cp "$ROOT_DIR/src/os/requirements.txt" "$OVERLAY_DIR/opt/equip1/requirements.txt"
 if [ -d "$ROOT_DIR/src/os/fonts" ]; then
+    mkdir -p "$OVERLAY_DIR/opt/equip1/fonts"
     cp -r "$ROOT_DIR/src/os/fonts/"* "$OVERLAY_DIR/opt/equip1/fonts/" 2>/dev/null || true
 fi
 
@@ -305,7 +306,7 @@ BUILDSSH
 
 attempt=1
 while true; do
-    ATTEMPT_LOG="$(mktemp "${TMPDIR:-/tmp}/equip1-build-attempt-${attempt}.XXXXXX.log")"
+    ATTEMPT_LOG="$(mktemp "${TMPDIR:-/tmp}/equip1-build-attempt-${attempt}.log.XXXXXX")"
     if run_build_attempt "$attempt" 2>&1 | tee "$ATTEMPT_LOG"; then
         rm -f "$ATTEMPT_LOG"
         break
@@ -333,6 +334,10 @@ scp $SSH_OPTS \
     "$OUTPUT_DIR/sdcard.img"
 
 echo "==> Stopping VM..."
+# Flush the guest filesystem before stopping. tart stop can otherwise lose
+# recently-written files (truncated/0-byte), corrupting cached build state
+# (e.g. the AIC8800 git checkout) for the next run.
+$SSH 'sync; sync' 2>/dev/null || true
 tart stop "$VM_NAME" 2>/dev/null || true
 wait $VM_PID 2>/dev/null || true
 

@@ -10,15 +10,24 @@ if [ ! -f "$IMAGE" ]; then
     exit 1
 fi
 
-# List all external physical disks
-DISKS=($(diskutil list external physical 2>/dev/null | grep "^/dev/" | awk '{print $1}'))
+# List removable disks: external drives AND internal removable media
+# (built-in SD card readers report as "internal" but "Removable").
+DISKS=()
+for d in $(diskutil list physical 2>/dev/null | grep "^/dev/" | awk '{print $1}'); do
+    INFO=$(diskutil info "$d")
+    LOCATION=$(echo "$INFO" | awk -F: '/Device Location/{print $2}' | xargs)
+    REMOVABLE=$(echo "$INFO" | awk -F: '/Removable Media/{print $2}' | xargs)
+    if [ "$LOCATION" = "External" ] || echo "$REMOVABLE" | grep -qi "Removable"; then
+        DISKS+=("$d")
+    fi
+done
 
 if [ ${#DISKS[@]} -eq 0 ]; then
-    echo "ERROR: No external disks found. Insert SD card and try again."
+    echo "ERROR: No removable disks found. Insert SD card and try again."
     exit 1
 fi
 
-echo "External disks:"
+echo "Removable disks:"
 echo ""
 for i in "${!DISKS[@]}"; do
     INFO=$(diskutil info "${DISKS[$i]}")

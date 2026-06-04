@@ -1,0 +1,7 @@
+config BR2_PACKAGE_LIBDV
+	bool "libdv"
+	help
+	  The Quasar DV codec (libdv): software decode/encode of DV video,
+	  required by dvgrab.
+
+	  https://libdv.sourceforge.net/
