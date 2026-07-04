@@ -27,12 +27,18 @@ fabrication-toolkit-options.json
 
 *.stl
 *.ttf
+# ...but keep the OLED display fonts (required by the buildroot image)
+!src/os/fonts/*.ttf
 
 # Local notes
 todo.md
 
 # Buildroot generated artifacts and logs
 buildroot/build.log
+buildroot/*.log
 buildroot/logs/
 buildroot/buildroot/
 buildroot/scripts/minicom.log
+__pycache__/
+
+overlay/etc/wpa_supplicant.conf

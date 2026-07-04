@@ -108,6 +108,7 @@ echo "==> Copying application into overlay..."
 cp "$ROOT_DIR/src/os/os.py" "$OVERLAY_DIR/opt/equip1/os.py"
 cp "$ROOT_DIR/src/os/requirements.txt" "$OVERLAY_DIR/opt/equip1/requirements.txt"
 if [ -d "$ROOT_DIR/src/os/fonts" ]; then
+    mkdir -p "$OVERLAY_DIR/opt/equip1/fonts"
     cp -r "$ROOT_DIR/src/os/fonts/"* "$OVERLAY_DIR/opt/equip1/fonts/" 2>/dev/null || true
 fi
 
@@ -157,6 +158,10 @@ run_build_attempt() {
     rsync -avz -e "ssh $SSH_OPTS" \
         "$BUILDROOT_DIR/configs/" "$BUILDROOT_DIR/dts/" \
         admin@"$VM_IP":~/staging/
+
+    # br2-external tree with the vendored DV capture stack (dvgrab + libs)
+    rsync -avz --delete -e "ssh $SSH_OPTS" \
+        "$BUILDROOT_DIR/external/" admin@"$VM_IP":~/external/
 
     scp $SSH_OPTS "$BUILDROOT_DIR/scripts/post-build.sh" admin@"$VM_IP":~/staging/post-build.sh
 
@@ -221,9 +226,12 @@ chmod +x ~/buildroot/post-build.sh
 
 cd ~/buildroot
 
+# br2-external tree providing the vendored DV capture packages (dvgrab + libs).
+export BR2_EXTERNAL="$HOME/external"
+
 # Always reload defconfig to pick up changes
 echo "==> Loading defconfig..."
-make "$DEFCONFIG_BASENAME"
+make BR2_EXTERNAL="$BR2_EXTERNAL" "$DEFCONFIG_BASENAME"
 # Patch paths to use absolute VM paths
 sed -i "s|^BR2_ROOTFS_OVERLAY=.*|BR2_ROOTFS_OVERLAY=\"$HOME/overlay\"|" .config
 sed -i "s|^BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES=.*|BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES=\"$HOME/buildroot/linux.config\"|" .config
@@ -305,7 +313,7 @@ BUILDSSH
 
 attempt=1
 while true; do
-    ATTEMPT_LOG="$(mktemp "${TMPDIR:-/tmp}/equip1-build-attempt-${attempt}.XXXXXX.log")"
+    ATTEMPT_LOG="$(mktemp "${TMPDIR:-/tmp}/equip1-build-attempt-${attempt}.log.XXXXXX")"
     if run_build_attempt "$attempt" 2>&1 | tee "$ATTEMPT_LOG"; then
         rm -f "$ATTEMPT_LOG"
         break
@@ -333,6 +341,10 @@ scp $SSH_OPTS \
     "$OUTPUT_DIR/sdcard.img"
 
 echo "==> Stopping VM..."
+# Flush the guest filesystem before stopping. tart stop can otherwise lose
+# recently-written files (truncated/0-byte), corrupting cached build state
+# (e.g. the AIC8800 git checkout) for the next run.
+$SSH 'sync; sync' 2>/dev/null || true
 tart stop "$VM_NAME" 2>/dev/null || true
 wait $VM_PID 2>/dev/null || true
 
