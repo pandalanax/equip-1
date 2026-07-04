@@ -7,6 +7,7 @@ LIBDV_SOURCE = libdv-$(LIBDV_VERSION).tar.gz
 LIBDV_LICENSE = LGPL-2.1+
 LIBDV_LICENSE_FILES = COPYING.LIB
 LIBDV_INSTALL_STAGING = YES
-# No x86 asm on aarch64; skip GTK/SDL example players.
-LIBDV_CONF_OPTS = --disable-asm --without-gtk --disable-sdl --disable-gprof
+LIBDV_DEPENDENCIES = popt host-pkgconf
+# No x86 asm on aarch64; skip the GTK/Xv playdv tool (encodedv still builds, needs popt).
+LIBDV_CONF_OPTS = --disable-asm --disable-gtk --disable-xv --disable-gprof
 $(eval $(autotools-package))

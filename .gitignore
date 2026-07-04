@@ -40,3 +40,5 @@ buildroot/logs/
 buildroot/buildroot/
 buildroot/scripts/minicom.log
 __pycache__/
+
+overlay/etc/wpa_supplicant.conf

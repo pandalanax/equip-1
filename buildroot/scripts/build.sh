@@ -159,6 +159,10 @@ run_build_attempt() {
         "$BUILDROOT_DIR/configs/" "$BUILDROOT_DIR/dts/" \
         admin@"$VM_IP":~/staging/
 
+    # br2-external tree with the vendored DV capture stack (dvgrab + libs)
+    rsync -avz --delete -e "ssh $SSH_OPTS" \
+        "$BUILDROOT_DIR/external/" admin@"$VM_IP":~/external/
+
     scp $SSH_OPTS "$BUILDROOT_DIR/scripts/post-build.sh" admin@"$VM_IP":~/staging/post-build.sh
 
     echo "==> Building on VM (attempt $attempt/$MAX_HEAL_ATTEMPTS)..."
@@ -222,9 +226,12 @@ chmod +x ~/buildroot/post-build.sh
 
 cd ~/buildroot
 
+# br2-external tree providing the vendored DV capture packages (dvgrab + libs).
+export BR2_EXTERNAL="$HOME/external"
+
 # Always reload defconfig to pick up changes
 echo "==> Loading defconfig..."
-make "$DEFCONFIG_BASENAME"
+make BR2_EXTERNAL="$BR2_EXTERNAL" "$DEFCONFIG_BASENAME"
 # Patch paths to use absolute VM paths
 sed -i "s|^BR2_ROOTFS_OVERLAY=.*|BR2_ROOTFS_OVERLAY=\"$HOME/overlay\"|" .config
 sed -i "s|^BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES=.*|BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES=\"$HOME/buildroot/linux.config\"|" .config

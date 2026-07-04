@@ -2,6 +2,7 @@ import time
 import shutil
 import subprocess
 import os
+import glob
 import socket
 from periphery import GPIO
 from luma.core.interface.serial import i2c
@@ -16,6 +17,9 @@ if BOARD == "rock2f":
     I2C_PORT = 0
     GPIOCHIP = "/dev/gpiochip4"
     BUZZER = 19
+    # Hardware PWM for the buzzer: PWM0 (GPIO4_C3) at ffa90000. Matched against
+    # /sys/class/pwm/pwmchip*/device so the chip number can float.
+    BUZZER_PWM_ADDR = "ffa90000"
     BTN_UP = 15
     BTN_SELECT = 16
     BTN_DOWN = 22
@@ -23,6 +27,7 @@ elif BOARD == "rpi":
     I2C_PORT = 1
     GPIOCHIP = "/dev/gpiochip4"
     BUZZER = 12
+    BUZZER_PWM_ADDR = None
     BTN_UP = 22
     BTN_SELECT = 27
     BTN_DOWN = 17
@@ -33,7 +38,9 @@ else:
 class RecorderState:
     def __init__(self, output_dir=None):
         if output_dir is None:
-            output_dir = os.path.expanduser("~/captures")
+            # Recordings go to the exFAT data partition (mounted at /data by
+            # S15data), which is readable on macOS/Windows.
+            output_dir = os.environ.get("EQUIP_1_CAPTURES_DIR", "/data/captures")
         self.mode = "idle"
         self.start_time = None
         self.process = None
@@ -111,6 +118,14 @@ class Display:
         self.font_big = ImageFont.truetype(
             "fonts/Px437_Paradise132_7x16.ttf", 34
         )
+
+    @property
+    def width(self):
+        return self.device.width
+
+    @property
+    def height(self):
+        return self.device.height
 
     def clear(self):
         img = Image.new("1", self.device.size)
@@ -314,10 +329,63 @@ class TestScreen(Screen):
 
 
 class Buzzer:
-    def __init__(self, chip=GPIOCHIP, line=BUZZER):
-        self.gpio = GPIO(chip, line, "out")
-    
+    """Drives the passive buzzer. Prefers jitter-free hardware PWM via sysfs;
+    falls back to software bit-banging on a plain GPIO if no PWM channel is found."""
+
+    def __init__(self, chip=GPIOCHIP, line=BUZZER, pwm_addr=BUZZER_PWM_ADDR):
+        self.pwm = None   # path to /sys/class/pwm/pwmchipN/pwm0 when using hardware PWM
+        self.gpio = None
+        pwmchip = self._find_pwmchip(pwm_addr) if pwm_addr else None
+        if pwmchip is not None:
+            self.pwm = self._export_pwm(pwmchip)
+        if self.pwm is None:
+            # Fallback: bit-banged square wave on a GPIO (jittery, but works).
+            self.gpio = GPIO(chip, line, "out")
+
+    @staticmethod
+    def _find_pwmchip(addr):
+        for chip in glob.glob("/sys/class/pwm/pwmchip*"):
+            try:
+                if addr in os.path.realpath(os.path.join(chip, "device")):
+                    return chip
+            except OSError:
+                pass
+        return None
+
+    def _export_pwm(self, chip):
+        channel = os.path.join(chip, "pwm0")
+        try:
+            if not os.path.isdir(channel):
+                with open(os.path.join(chip, "export"), "w") as f:
+                    f.write("0")
+            return channel
+        except OSError:
+            return None
+
+    def _write(self, attr, value):
+        with open(os.path.join(self.pwm, attr), "w") as f:
+            f.write(str(value))
+
     def beep(self, duration=0.08, freq=2048):
+        if self.pwm is not None:
+            period = int(1_000_000_000 / freq)  # nanoseconds
+            try:
+                # period must be set before duty_cycle (a freshly exported channel
+                # has period=0, and writing duty_cycle then fails with EINVAL).
+                try:
+                    self._write("period", period)
+                except OSError:
+                    # current duty_cycle exceeds the new period: zero it, then retry
+                    self._write("duty_cycle", 0)
+                    self._write("period", period)
+                self._write("duty_cycle", period // 2)
+                self._write("enable", 1)
+                time.sleep(duration)
+                self._write("enable", 0)
+            except OSError:
+                pass
+            return
+        # Software fallback
         cycles = int(duration * freq)
         half_period = 1.0 / freq / 2
         for _ in range(cycles):
@@ -325,9 +393,15 @@ class Buzzer:
             time.sleep(half_period)
             self.gpio.write(False)
             time.sleep(half_period)
-    
+
     def close(self):
-        self.gpio.close()
+        if self.pwm is not None:
+            try:
+                self._write("enable", 0)
+            except OSError:
+                pass
+        if self.gpio is not None:
+            self.gpio.close()
 
 
 class NullBuzzer:
@@ -443,7 +517,49 @@ class App:
         if self.current_screen.can_navigate():
             self.current_screen_idx = (self.current_screen_idx + 1) % len(self.screens)
     
+    def startup(self):
+        """Boot splash: 'EQUIP-1' types out in the logo font with an ascending
+        buzzer jingle, then a final note. Safe with NullDisplay/NullBuzzer."""
+        title = "EQUIP-1"
+        disp = self.display
+
+        # Logo font (w.ttf), auto-sized to the largest that fits the width.
+        probe = ImageDraw.Draw(Image.new("1", (disp.width, disp.height)))
+        fb = disp.font_big
+        for size in (44, 40, 36, 32, 30, 28, 26, 24, 22):
+            try:
+                f = ImageFont.truetype("fonts/w.ttf", size)
+            except OSError:
+                break
+            bbox = probe.textbbox((0, 0), title, font=f)
+            if (bbox[2] - bbox[0]) <= disp.width - 4:
+                fb = f
+                break
+
+        for n in range(1, len(title) + 1):
+            partial = title[:n]
+
+            def draw(d, w, h, partial=partial):
+                bbox = d.textbbox((0, 0), title, font=fb)
+                tw = bbox[2] - bbox[0]
+                th = bbox[3] - bbox[1]
+                x = (w - tw) // 2 - bbox[0]
+                y = (h - th) // 2 - bbox[1]
+                d.text((x, y), partial, font=fb, fill=255)
+
+            disp.render(draw)
+            self.buzzer.beep(duration=0.05, freq=500 + n * 90)
+            time.sleep(0.04)
+
+        self.buzzer.beep(duration=0.20, freq=1047)
+        time.sleep(0.5)
+
     def run(self):
+        try:
+            self.startup()
+        except Exception as exc:
+            # Never let a splash error take down the whole app.
+            print(f"startup splash failed: {exc}")
         try:
             while True:
                 if self.buttons.up.pressed():

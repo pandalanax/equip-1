@@ -100,7 +100,8 @@ merge_dt_overlays() {
     #   rk3528-i2c0-m1 : OLED bus (40-pin header pins 3/5)
     #   pcie-enable    : pcie_en regulator (GPIO1_A4) powering the Firehat's VIA
     #                    VT6315N FireWire controller — without it PCIe never links.
-    local overlays="rk3528-i2c0-m1.dtbo pcie-enable.dtbo"
+    #   rk3528-pwm0-m0 : PWM0 on GPIO4_C3 for hardware-PWM buzzer drive.
+    local overlays="rk3528-i2c0-m1.dtbo pcie-enable.dtbo rk3528-pwm0-m0.dtbo"
 
     if ! command -v fdtoverlay >/dev/null 2>&1; then
         echo "ERROR: fdtoverlay not found (install device-tree-compiler)"
@@ -135,6 +136,14 @@ merge_dt_overlays() {
         echo "==> DTB merge OK: pcie_en regulator present"
     else
         echo "ERROR: pcie_en regulator missing after merge"
+        return 1
+    fi
+
+    # Sanity check: confirm pwm0 (buzzer) is now enabled.
+    if fdtget "$dtb" /pwm@ffa90000 status 2>/dev/null | grep -q okay; then
+        echo "==> DTB merge OK: pwm0 status=okay"
+    else
+        echo "ERROR: pwm0 not enabled after merge"
         return 1
     fi
 }
